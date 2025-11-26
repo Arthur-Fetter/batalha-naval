@@ -4,8 +4,20 @@ import socket
 import time
 import pygame
 
+def getMyIP():
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        s.connect(('8.8.8.8', 80))
+        IP = s.getsockname()[0]
+    except:
+        IP = '127.0.0.1'
+    finally:
+        s.close()
+    return IP
+
 class Game:
     def __init__(self, player):
+        self.my_ip = getMyIP()
         self.udp_port = 5000
         self.tcp_port = 5001
         self.players_ip_list = []
@@ -14,7 +26,13 @@ class Game:
         self.running = True
         self.next_action: dict | None = None
         self.lock_next_action = threading.Lock()
-        
+        self.animations = []
+        self.lock_animations = threading.Lock()
+        self.score = dict()
+        self.lock_score = threading.Lock()
+        self.game_logs = []
+        self.lock_game_logs = threading.Lock()
+
     def addToIPList(self, ip):
         with self.lock_ip_list:
             if ip not in self.lock_ip_list:
@@ -27,25 +45,10 @@ class Game:
             except:
                 pass
 
-    def announceConnection(self):
-        udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-
-        try:
-            mensagem = "Conectando"
-            print(f"[Broadcast] Enviando '{mensagem}' para todos...")
-            
-            udp.sendto(mensagem.encode(), ("255.255.255.255", self.udp_port))
-            
-        except Exception as e:
-            print(f"Erro ao enviar broadcast: {e}")
-        finally:
-            udp.close()
-
     def udpListen(self):
         """Thread listening on port 5000"""
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        udp.bind(("", 5000))
+        udp.bind(("0.0.0.0", 5000))
         print(f"[UDP] Ouvindo na porta {self.udp_port}...")
         
         while self.running:
@@ -54,22 +57,74 @@ class Game:
                 msg, client = udp.recvfrom(1024)
                 
                 message = msg.decode()
-                ip = client[0]
+                client_ip = client[0]
+
+                print(f"[DEBUG] conecxão de {self.my_ip}")
+                if client_ip == self.my_ip:
+                    continue
                 
-                print(f"\n[UDP Recebido] {message} de {ip}")
+                print(f"\n[UDP] Recebido {message} de {client_ip}")
                 
                 if "Conectando" in message:
+                    print("[CONECTANDO]")
                     with self.lock_ip_list:
-                        self.addToIPList(ip)
+                        self.addToIPList(client_ip)
+                        lista_str = str(self.players_ip_list)
+
+                    msg_resposta = f"participantes:{lista_str}"
+                    self.sendTCP(msg_resposta, client_ip)
+                    self.addLog(f"Novo jogador detectado: {client_ip}")
+
+                elif message.startswith("shot:"):
+                    coords = message.split(":")[1].split(",")
+                    gx, gy = int(coords[0]), int(coords[1])
+                    
+                    hit = ((gx, gy) == self.player.position)
+                    tipo_visual = 'agua'
+                    
+                    if hit:
+                        print(f"[COMBATE] Fui atingido por {client_ip} em ({gx},{gy})!")
+                        self.addLog(f"ALERTA: Você foi atingido por {client_ip}!")
+                        tipo_visual = 'acerto'
+                        
+                        with self.lock_score:
+                            self.score['recebidos'] += 1
+                        
+                        self.sendTCP("hit", client_ip) 
+                    
+                    with self.lock_animations:
+                        self.animations.append({
+                            'grid_x': gx,
+                            'grid_y': gy,
+                            'vida': 30, 
+                            'tipo': tipo_visual
+                        })
+                elif message.startswith("move"):
+                    self.addLog(f"O inimigo {client_ip} se moveu!")
+                    try:
+                        partes = message.split()
+                        operador = partes[1]
+                        eixo = partes[2]
+                        
+                        direcao_texto = "Direita" if (eixo == "X" and operador == "+") else \
+                                        "Esquerda" if (eixo == "X" and operador == "-") else \
+                                        "Baixo" if (eixo == "Y" and operador == "+") else "Cima"
+                                        
+                        print(f"[ALERTA] O inimigo {client_ip} moveu-se para: {direcao_texto}!")
+                        
+                    except IndexError:
+                        print(f"[UDP Erro] Formato de movimento inválido: {message}")
             except socket.timeout:
                 continue
             except Exception as e:
-                print(f"Erro UDP: {e}")
+                print(f"[UDP] Erro UDP: {e}")
+                import traceback
+                traceback.print_exc()
 
     def tcpListen(self):
         """Thread listening on port 5001"""
         tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        tcp.bind(("", 5001))
+        tcp.bind(("0.0.0.0", 5001))
         tcp.listen(5)
         print("[TCP] Ouvindo na porta 5001...")
         
@@ -77,8 +132,43 @@ class Game:
             try:
                 tcp.settimeout(1.0)
                 conn, addr = tcp.accept()
-                # Treat TCP connection based on messages
-                # Right now, connection is just closed
+
+                with conn:
+                    data = conn.recv(4096)
+                    msg = data.decode()
+                    print(f"[TCP] Recebido de {addr[0]}: {msg}")
+
+                    if msg.startswith("scout:"):
+                        coords = msg.split(":")[1].split(",")
+                        scout_x, scout_y = int(coords[0]), int(coords[1])
+                        
+                        my_x, my_y = self.player.position
+                        
+                        if (scout_x, scout_y) == (my_x, my_y):
+                            print("[TCP] Scout descobriu meu navio!")
+                            conn.sendall(b"hit")
+                        else:
+                            dx = 1 if my_x > scout_x else (-1 if my_x < scout_x else 0)
+                            dy = 1 if my_y > scout_y else (-1 if my_y < scout_y else 0)
+                            
+                            response = f"info:{dx},{dy}"
+                            print(f"[TCP] Respondendo scout com dica: {response}")
+                            conn.sendall(response.encode())
+                    elif msg.startswith("participantes:"):
+                        str_list = msg.split(":", 1)[1] 
+                        
+                        limpo = str_list.replace("[","").replace("]","").replace("'","").replace(" ","")
+                        ips = limpo.split(",")
+                        
+                        with self.lock_ip_list:
+                            for ip in ips:
+                                if ip and ip != self.my_ip:
+                                    self.addToIPList(ip)
+                                    
+                    elif msg == "hit":
+                        print("[TCP] Confirmação de acerto recebida!")
+                        with self.lock_score:
+                            self.score['hit'] += 1
                 print(f"\n[TCP] Conexão de {addr}")
                 conn.close()
             except socket.timeout:
@@ -86,7 +176,7 @@ class Game:
             except Exception as e:
                 print(f"Erro TCP: {e}")
     
-    def sendTCP(self, message, ip): 
+    def sendTCP(self, message, ip):
         tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp.settimeout(2)
 
@@ -100,7 +190,7 @@ class Game:
         finally:
             tcp.close()
 
-    def sendUDP(self, message): 
+    def sendUDP(self, message):
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
         try:
@@ -108,9 +198,20 @@ class Game:
         
             udp.sendto(message.encode(), ("255.255.255.255", self.udp_port))
         except Exception as e:
-            print(f"Erro ao enviar mensagem: {e}")
+            print(f"[UDP] Erro ao enviar mensagem: {e}")
         finally:
             udp.close()
+
+    def addLog(self, texto):
+        with self.lock_game_logs:
+            import datetime
+            hora = datetime.datetime.now().strftime("%H:%M:%S")
+            mensagem_formatada = f"[{hora}] {texto}"
+            
+            self.game_logs.append(mensagem_formatada)
+            
+            if len(self.game_logs) > 5:
+                self.game_logs.pop(0)
 
     def updateShipLocation(self, message):
         split_msg = message.split()
@@ -144,14 +245,18 @@ class Game:
                 msg = acao["message"]
                 target = acao["target_ip"]
 
+                msg_rede = msg
+                if msg_rede.startswith("move"):
+                    msg_rede = "moved"
+
                 if protocolo == "UDP":
-                    print(f"[Timer] Enviando UDP Broadcast: {msg}")
-                    self.sendUDP(msg) 
+                    print(f"[Timer] Enviando UDP Broadcast: {msg_rede}")
+                    self.sendUDP(msg_rede)
 
                 elif protocolo == "TCP":
                     if target:
-                        print(f"[Timer] Enviando TCP para {target}: {msg}")
-                        self.sendTCP(msg, target)
+                        print(f"[Timer] Enviando TCP para {target}: {msg_rede}")
+                        self.sendTCP(msg_rede, target)
                     else:
                         print("[Erro] Ação TCP sem IP alvo definido!")
                 if msg.startswith("move"):
@@ -215,13 +320,13 @@ def main():
     t_tcp.start()
     t_timer.start()
 
-    game.announceConnection()
+    game.sendUDP("Conectando")
  
     while game.running:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 game.running = False
-                # Enviar mensagem de saída UDP aqui...
+                game.sendUDP("saindo")
             
             if event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = pygame.mouse.get_pos()
@@ -229,7 +334,7 @@ def main():
                 gy = (my - 50) // gameMap.cell_size
                 
                 if 0 <= gx < 10 and 0 <= gy < 10:
-                    print(f"Clique na célula: {gx}, {gy}")
+                    print(f"[Game loop] Clique na célula: {gx}, {gy}")
                     nova_acao = None
 
                     if event.button == 3:
@@ -241,19 +346,19 @@ def main():
                                     "target_ip": None
                                 }
                             else:
-                               print("Aguarde o timer...")
+                               print("[Game loop] Aguarde o timer...")
                     elif event.button == 1:
                         navio_x, navio_y = game.player.position[0], game.player.position[1]
                         
                         dx = gx - navio_x
                         dy = gy - navio_y
                         
-                        print(f"[Input] Clique Esquerdo em ({gx}, {gy}). Delta: ({dx}, {dy})")
+                        print(f"[Game loop] Clique Esquerdo em ({gx}, {gy}). Delta: ({dx}, {dy})")
 
                         direcao = None
                         
                         if abs(dx) + abs(dy) != 1:
-                            print("Movimento Inválido! Clique apenas numa casa adjacente (Cima/Baixo/Esq/Dir).")
+                            print("[Game loop] Movimento Inválido! Clique apenas numa casa adjacente (Cima/Baixo/Esq/Dir).")
                         else:
                             if dx == 1:
                                 direcao = "+ X"
@@ -270,28 +375,51 @@ def main():
                                     "message": f"move {direcao}",
                                     "target_ip": None
                                 }
-                                print(f"updated players position to: {game.player.position[0]}, {game.player.position[1]}")
                         if nova_acao:
                             with game.lock_next_action:
                                 if game.next_action is None:
                                     game.next_action = nova_acao
-                                    print(f">> Ação agendada: {nova_acao['message']}")
+                                    print(f"[Game loop] >> Ação agendada: {nova_acao['message']}")
                                 else:
                                     game.next_action = nova_acao 
-                                    print(f">> Ação ATUALIZADA para: {nova_acao['message']}")
+                                    print(f"[Game loop] >> Ação ATUALIZADA para: {nova_acao['message']}")
 
         screen.fill(gameMap.bg_color)
         
         gameMap.drawGrid(screen)
         
-        # Desenhar estado do jogo (com Lock para segurança)
-        # with lock:
         gameMap.drawShip(screen, game.player.position[0], game.player.position[1])
-        #    for tiro in tiros_recebidos:
-        #        desenhar_tiro(screen, tiro[0], tiro[1])
-        
-        texto_status = font.render("Status: Aguardando Timer...", True, (255, 255, 255))
-        screen.blit(texto_status, (10, 600))
+
+        with game.lock_animations:
+            animacoes_restantes = []
+
+            for anim in game.animations:
+                anim['vida'] -= 1
+
+                if anim['vida'] > 0:
+                    animacoes_restantes.append(anim)
+
+                    px = 50 + (anim['grid_x'] * 50) + 25
+                    py = 50 + (anim['grid_y'] * 50) + 25
+
+                    if anim['tipo'] == 'acerto':
+                        raio = int(anim['vida'] * 0.8) 
+                        pygame.draw.circle(screen, (255, 0, 0), (px, py), raio)
+                        
+                        pygame.draw.circle(screen, (255, 255, 0), (px, py), raio // 2)
+
+                    elif anim['tipo'] == 'agua':
+                        raio = 15
+                        pygame.draw.circle(screen, (100, 100, 255), (px, py), raio)
+
+            game.animations = animacoes_restantes
+
+        log_pos = 600
+        with game.lock_game_logs:
+            for mensagem in game.game_logs:
+                texto_img = font.render(mensagem, True, (255, 255, 255))
+                screen.blit(texto_img, (20, log_pos))
+                log_pos += 20
 
         pygame.display.flip()
         clock.tick(30)
