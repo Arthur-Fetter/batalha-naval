@@ -4,20 +4,22 @@ import socket
 import time
 import pygame
 
-def getMyIP():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(('8.8.8.8', 80))
-        IP = s.getsockname()[0]
-    except:
-        IP = '127.0.0.1'
-    finally:
-        s.close()
-    return IP
+class utils:
+    def getMyIP(self):
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(('8.8.8.8', 80))
+            IP = s.getsockname()[0]
+        except:
+            IP = '127.0.0.1'
+        finally:
+            s.close()
+        return IP
 
 class Game:
     def __init__(self, player):
-        self.my_ip = getMyIP()
+        self.utils = utils()
+        self.my_ip = self.utils.getMyIP()
         self.udp_port = 5000
         self.tcp_port = 5001
         self.players_ip_list = []
