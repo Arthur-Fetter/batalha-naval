@@ -76,11 +76,15 @@ class Game:
                     self.sendTCP(msg_resposta, client_ip)
                     self.addLog(f"Novo jogador detectado: {client_ip}")
 
+                elif message.startswith("saindo"):
+                    self.addLog(f"Jogador saindo da partida: {client_ip}")
+                    self.players_ip_list.remove(client_ip)
+
                 elif message.startswith("shot:"):
                     coords = message.split(":")[1].split(",")
                     gx, gy = int(coords[0]), int(coords[1])
                     
-                    hit = ((gx, gy) == self.player.position)
+                    hit = ((gx, gy) == (self.player.position[0], self.player.position[1]))
                     tipo_visual = 'agua'
                     
                     if hit:
@@ -102,19 +106,6 @@ class Game:
                         })
                 elif message.startswith("move"):
                     self.addLog(f"O inimigo {client_ip} se moveu!")
-                    try:
-                        partes = message.split()
-                        operador = partes[1]
-                        eixo = partes[2]
-                        
-                        direcao_texto = "Direita" if (eixo == "X" and operador == "+") else \
-                                        "Esquerda" if (eixo == "X" and operador == "-") else \
-                                        "Baixo" if (eixo == "Y" and operador == "+") else "Cima"
-                                        
-                        print(f"[ALERTA] O inimigo {client_ip} moveu-se para: {direcao_texto}!")
-                        
-                    except IndexError:
-                        print(f"[UDP Erro] Formato de movimento inválido: {message}")
             except socket.timeout:
                 continue
             except Exception as e:
@@ -161,10 +152,9 @@ class Game:
                         limpo = str_list.replace("[","").replace("]","").replace("'","").replace(" ","")
                         ips = limpo.split(",")
                         
-                        with self.lock_ip_list:
-                            for ip in ips:
-                                if ip and ip != self.my_ip:
-                                    self.addToIPList(ip)
+                        for ip in ips:
+                            if ip and ip != self.my_ip:
+                                self.addToIPList(ip)
                                     
                     elif msg == "hit":
                         print("[TCP] Confirmação de acerto recebida!")
@@ -470,8 +460,8 @@ def main():
     medium_font = pygame.font.SysFont(None, 40)
 
     txt_titulo = big_font.render("FIM DE JOGO", True, (255, 0, 0))
-    txt_placar = medium_font.render(f"Acertos: {game.score['shot']} | Recebidos: {game.score['hit']}", True, (255, 255, 255))
-    txt_final = big_font.render(f"SCORE: {game.score['shot'] - game.score['hit']}", True, (0, 255, 0))
+    txt_placar = medium_font.render(f"Acertos: {game.score['hit']} | Recebidos: {game.score['shot']}", True, (255, 255, 255))
+    txt_final = big_font.render(f"SCORE: {game.score['hit'] - game.score['shot']}", True, (0, 255, 0))
 
     screen.blit(txt_titulo, (gameMap.screen_width//2 - 140, 200))
     screen.blit(txt_placar, (gameMap.screen_width//2 - 180, 300))
