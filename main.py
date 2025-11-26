@@ -28,7 +28,7 @@ class Game:
         self.lock_next_action = threading.Lock()
         self.animations = []
         self.lock_animations = threading.Lock()
-        self.score = dict()
+        self.score = {'shot': 0, 'hit': 0}
         self.lock_score = threading.Lock()
         self.game_logs = []
         self.lock_game_logs = threading.Lock()
@@ -88,7 +88,7 @@ class Game:
                         tipo_visual = 'acerto'
                         
                         with self.lock_score:
-                            self.score['recebidos'] += 1
+                            self.score['shot'] += 1
                         
                         self.sendTCP("hit", client_ip) 
                     
@@ -463,7 +463,23 @@ def main():
 
         pygame.display.flip()
         clock.tick(30)
+    screen.fill((0, 0, 0))
+    
+    big_font = pygame.font.SysFont(None, 60)
+    medium_font = pygame.font.SysFont(None, 40)
 
+    txt_titulo = big_font.render("FIM DE JOGO", True, (255, 0, 0))
+    txt_placar = medium_font.render(f"Acertos: {game.score['shot']} | Recebidos: {game.score['hit']}", True, (255, 255, 255))
+    txt_final = big_font.render(f"SCORE: {game.score['shot'] - game.score['hit']}", True, (0, 255, 0))
+
+    screen.blit(txt_titulo, (gameMap.screen_width//2 - 140, 200))
+    screen.blit(txt_placar, (gameMap.screen_width//2 - 180, 300))
+    screen.blit(txt_final,  (gameMap.screen_width//2 - 100, 400))
+
+    pygame.display.flip()
+
+    print("Exibindo placar por 5 segundos...")
+    time.sleep(5)
     pygame.quit()
    
 if __name__ == "__main__":
