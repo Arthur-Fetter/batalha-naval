@@ -37,7 +37,7 @@ class Game:
 
     def addToIPList(self, ip):
         with self.lock_ip_list:
-            if ip not in self.lock_ip_list:
+            if ip not in self.players_ip_list:
                 self.players_ip_list.append(ip)
 
     def removeFromIPList(self, ip):
@@ -61,7 +61,6 @@ class Game:
                 message = msg.decode()
                 client_ip = client[0]
 
-                print(f"[DEBUG] conecxão de {self.my_ip}")
                 if client_ip == self.my_ip:
                     continue
                 
@@ -69,8 +68,8 @@ class Game:
                 
                 if "Conectando" in message:
                     print("[CONECTANDO]")
+                    self.addToIPList(client_ip)
                     with self.lock_ip_list:
-                        self.addToIPList(client_ip)
                         lista_str = str(self.players_ip_list)
 
                     msg_resposta = f"participantes:{lista_str}"
@@ -374,7 +373,7 @@ def main():
                                 print(f"[Input] SCOUT (TCP) agendado em {gx},{gy}")
                                 nova_acao = {
                                     "protocol": "TCP",
-                                    "message": f"scout:{gx},{gy}", # Formato scout:x,y
+                                    "message": f"scout:{gx},{gy}",
                                     "target_ip": target_ip
                                 }
                             else:
@@ -384,7 +383,7 @@ def main():
                                 if game.next_action is None:
                                     game.next_action = {
                                         "protocol": "UDP",
-                                        "message": f"shot:{gx} {gy}",
+                                        "message": f"shot:{gx},{gy}",
                                         "target_ip": None
                                     }
                                 else:
