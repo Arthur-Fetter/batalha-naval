@@ -176,15 +176,20 @@ class Game:
             except Exception as e:
                 print(f"Erro TCP: {e}")
     
-    def sendTCP(self, message, ip):
+    def sendTCP(self, message, ip, await_response=False):
         tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp.settimeout(2)
 
         try:
             print(f"[TCP] Enviando '{message}' para {ip}...")
             tcp.connect((ip, self.tcp_port))
-        
             tcp.sendall(message.encode())
+
+            if await_response:
+                data = tcp.recv(1024) 
+                resposta = data.decode()
+                print(f"[TCP] Resposta recebida: {resposta}")
+
         except Exception as e:
             print(f"Erro ao enviar mensagem: {e}")
         finally:
@@ -254,6 +259,22 @@ class Game:
                     self.sendUDP(msg_rede)
 
                 elif protocolo == "TCP":
+                    is_scout = msg_rede.startswith("scout")
+                    
+                    response = self.sendTCP(msg, target, await_response=is_scout)
+                    
+                    if is_scout and response:
+                        if response == "hit":
+                            self.addLog(f"SCOUT SUCESSO! Inimigo encontrado em {target}")
+                        
+                        elif response.startswith("info:"):
+                            data = response.split(":")[1].split(",")
+                            dx, dy = int(data[0]), int(data[1])
+                            
+                            coord_x = "Direita" if dx == 1 else ("Esquerda" if dx == -1 else "Mesmo X")
+                            coord_y = "Baixo" if dy == 1 else ("Cima" if dy == -1 else "Mesmo Y")
+                            
+                            self.addLog(f"SCOUT ({target}): O navio está para {coord_x} e {coord_y}")
                     if target:
                         print(f"[Timer] Enviando TCP para {target}: {msg_rede}")
                         self.sendTCP(msg_rede, target)
@@ -338,15 +359,34 @@ def main():
                     nova_acao = None
 
                     if event.button == 3:
-                        with game.lock_next_action:
-                            if game.next_action is None:
-                                game.next_action = {
-                                    "protocol": "UDP",
-                                    "message": f"shot:{gx} {gy}",
-                                    "target_ip": None
+                        keys = pygame.key.get_pressed()
+                        is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+                        
+                        if is_shift_pressed:
+                            target_ip = None
+                            with game.lock_ip_list:
+                                if len(game.players_ip_list) > 0:
+                                    target_ip = game.players_ip_list[0] 
+                            
+                            if target_ip:
+                                print(f"[Input] SCOUT (TCP) agendado em {gx},{gy}")
+                                nova_acao = {
+                                    "protocol": "TCP",
+                                    "message": f"scout:{gx},{gy}", # Formato scout:x,y
+                                    "target_ip": target_ip
                                 }
                             else:
-                               print("[Game loop] Aguarde o timer...")
+                                game.addLog("Erro: Ninguém na lista para sondar.")
+                        else:
+                            with game.lock_next_action:
+                                if game.next_action is None:
+                                    game.next_action = {
+                                        "protocol": "UDP",
+                                        "message": f"shot:{gx} {gy}",
+                                        "target_ip": None
+                                    }
+                                else:
+                                   print("[Game loop] Aguarde o timer...")
                     elif event.button == 1:
                         navio_x, navio_y = game.player.position[0], game.player.position[1]
                         
