@@ -34,6 +34,7 @@ class Game:
         self.lock_score = threading.Lock()
         self.game_logs = []
         self.lock_game_logs = threading.Lock()
+        self.target_index = 0
 
     def addToIPList(self, ip):
         with self.lock_ip_list:
@@ -48,7 +49,6 @@ class Game:
                 pass
 
     def udpListen(self):
-        """Thread listening on port 5000"""
         udp = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         udp.bind(("0.0.0.0", 5000))
         print(f"[UDP] Ouvindo na porta {self.udp_port}...")
@@ -82,6 +82,7 @@ class Game:
 
                 elif message.startswith("shot:"):
                     coords = message.split(":")[1].split(",")
+                    print(f"coords: {coords}")
                     gx, gy = int(coords[0]), int(coords[1])
                     
                     hit = ((gx, gy) == (self.player.position[0], self.player.position[1]))
@@ -114,7 +115,6 @@ class Game:
                 traceback.print_exc()
 
     def tcpListen(self):
-        """Thread listening on port 5001"""
         tcp = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         tcp.bind(("0.0.0.0", 5001))
         tcp.listen(5)
@@ -292,7 +292,7 @@ class GameMap:
     def __init__(self, grid_height, grid_width):
         self.height = grid_height
         self.width = grid_width
-        # Pygame attributes
+
         self.screen_height = 700
         self.screen_width = 700
         self.cell_size = 50
@@ -382,6 +382,14 @@ def main():
                             target_ip = None
                             with game.lock_ip_list:
                                 if len(game.players_ip_list) > 0:
+                                    if game.target_index >= len(game.players_ip_list):
+                                        game.target_index = 0
+                            target_ip = game.players_ip_list[game.target_index]
+                    
+                        if target_ip:
+                            target_ip = None
+                            with game.lock_ip_list:
+                                if len(game.players_ip_list) > 0:
                                     target_ip = game.players_ip_list[0] 
                             
                             if target_ip:
@@ -434,6 +442,19 @@ def main():
                                 game.next_action = nova_acao 
                                 game.addLog(f"Ação ATUALIZADA para: {nova_acao['message']}")
                                 print(f"[Game loop] >> Ação ATUALIZADA para: {nova_acao['message']}")
+                                
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_TAB:
+                    with game.lock_ip_list:
+                        total_jogadores = len(game.players_ip_list)
+                        if total_jogadores > 0:
+                            game.target_index = (game.target_index + 1) % total_jogadores
+                            
+                            ip_atual = game.players_ip_list[game.target_index]
+                            game.addLog(f"Alvo alterado para: {ip_atual}")
+                        else:
+                            game.addLog("Sem jogadores para mirar.")
+
 
         screen.fill(gameMap.bg_color)
         
@@ -471,6 +492,15 @@ def main():
                 texto_img = font.render(mensagem, True, (255, 255, 255))
                 screen.blit(texto_img, (20, log_pos))
                 log_pos += 20
+
+        ip_alvo_str = "Nenhum"
+        with game.lock_ip_list:
+             if len(game.players_ip_list) > 0:
+                 idx = game.target_index if game.target_index < len(game.players_ip_list) else 0
+                 ip_alvo_str = game.players_ip_list[idx]
+        
+        texto_alvo = font.render(f"ALVO ATUAL (TAB): {ip_alvo_str}", True, (255, 255, 0))
+        screen.blit(texto_alvo, (gameMap.screen_width - 300, 10))
 
         pygame.display.flip()
         clock.tick(30)
