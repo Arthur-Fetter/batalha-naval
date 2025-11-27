@@ -78,7 +78,7 @@ class Game:
 
                 elif message.startswith("saindo"):
                     self.addLog(f"Jogador saindo da partida: {client_ip}")
-                    self.players_ip_list.remove(client_ip)
+                    self.removeFromIPList(client_ip)
 
                 elif message.startswith("shot:"):
                     coords = message.split(":")[1].split(",")
@@ -124,6 +124,7 @@ class Game:
             try:
                 tcp.settimeout(1.0)
                 conn, addr = tcp.accept()
+                client_ip = addr[0]
 
                 with conn:
                     data = conn.recv(4096)
@@ -138,6 +139,7 @@ class Game:
                         
                         if (scout_x, scout_y) == (my_x, my_y):
                             print("[TCP] Scout descobriu meu navio!")
+                            self.addLog(f"{ client_ip } descobriu seu navio com scout!")
                             conn.sendall(b"hit")
                         else:
                             dx = 1 if my_x > scout_x else (-1 if my_x < scout_x else 0)
@@ -148,13 +150,23 @@ class Game:
                             conn.sendall(response.encode())
                     elif msg.startswith("participantes:"):
                         str_list = msg.split(":", 1)[1] 
+                        print(f"str list: {str_list}")
                         
                         limpo = str_list.replace("[","").replace("]","").replace("'","").replace(" ","")
                         ips = limpo.split(",")
+                        ips.append(client_ip)
+
+                        print(f"ips: {ips}")
+                        with self.lock_ip_list:
+                            print(f"lista de ips: {self.players_ip_list}")
                         
                         for ip in ips:
                             if ip and ip != self.my_ip:
+                                print(f"still adding ip {ip} to list")
                                 self.addToIPList(ip)
+
+                        with self.lock_ip_list:
+                            print(f"nova lista de ips: {self.players_ip_list}")
                                     
                     elif msg == "hit":
                         print("[TCP] Confirmação de acerto recebida!")
@@ -193,6 +205,7 @@ class Game:
             print(f"[Broadcast] Enviando '{message}' para todos...")
         
             udp.sendto(message.encode(), ("255.255.255.255", self.udp_port))
+            self.addLog(f"Enviando '{message}'")
         except Exception as e:
             print(f"[UDP] Erro ao enviar mensagem: {e}")
         finally:
@@ -379,7 +392,7 @@ def main():
                                     "target_ip": target_ip
                                 }
                             else:
-                                game.addLog("Erro: Ninguém na lista para sondar.")
+                                game.addLog("Nenhum jogador online para responder")
                         else:
                             navio_x, navio_y = game.player.position[0], game.player.position[1]
                             
@@ -392,6 +405,7 @@ def main():
                             
                             if abs(dx) + abs(dy) != 1:
                                 print("[Game loop] Movimento Inválido! Clique apenas numa casa adjacente (Cima/Baixo/Esq/Dir).")
+                                game.addLog("Movimento inválido! Clique apenas numa casa adjacente")
                             else:
                                 if dx == 1:
                                     direcao = "+ X"
