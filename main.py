@@ -292,7 +292,6 @@ class GameMap:
     def __init__(self, grid_height, grid_width):
         self.height = grid_height
         self.width = grid_width
-
         self.screen_height = 700
         self.screen_width = 700
         self.cell_size = 50
@@ -386,21 +385,21 @@ def main():
                                         game.target_index = 0
                             target_ip = game.players_ip_list[game.target_index]
                     
-                        if target_ip:
-                            target_ip = None
-                            with game.lock_ip_list:
-                                if len(game.players_ip_list) > 0:
-                                    target_ip = game.players_ip_list[0] 
-                            
                             if target_ip:
-                                print(f"[Input] SCOUT (TCP) agendado em {gx},{gy}")
-                                nova_acao = {
-                                    "protocol": "TCP",
-                                    "message": f"scout:{gx},{gy}",
-                                    "target_ip": target_ip
-                                }
-                            else:
-                                game.addLog("Nenhum jogador online para responder")
+                                target_ip = None
+                                with game.lock_ip_list:
+                                    if len(game.players_ip_list) > 0:
+                                        target_ip = game.players_ip_list[0] 
+                                
+                                if target_ip:
+                                    print(f"[Input] SCOUT (TCP) agendado em {gx},{gy}")
+                                    nova_acao = {
+                                        "protocol": "TCP",
+                                        "message": f"scout:{gx},{gy}",
+                                        "target_ip": target_ip
+                                    }
+                                else:
+                                    game.addLog("Nenhum jogador online para responder")
                         else:
                             navio_x, navio_y = game.player.position[0], game.player.position[1]
                             
