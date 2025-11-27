@@ -252,7 +252,7 @@ class Game:
                 elif protocolo == "TCP":
                     is_scout = msg_rede.startswith("scout")
                     
-                    response = self.sendTCP(msg, target, await_response=is_scout)
+                    response = self.sendTCP(msg_rede, target, await_response=is_scout)
                     
                     if is_scout and response:
                         if response == "hit":
@@ -350,6 +350,18 @@ def main():
                     nova_acao = None
 
                     if event.button == 3:
+                        with game.lock_next_action:
+                            print(f"next action: {game.next_action}")
+                            if game.next_action is None:
+                                nova_acao = {
+                                    "protocol": "UDP",
+                                    "message": f"shot:{gx},{gy}",
+                                    "target_ip": None
+                                }
+                            else:
+                               print("[Game loop] Aguarde o timer...")
+                               game.addLog("Aguarde o timer...")
+                    elif event.button == 1:
                         keys = pygame.key.get_pressed()
                         is_shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
                         
@@ -369,51 +381,45 @@ def main():
                             else:
                                 game.addLog("Erro: Ninguém na lista para sondar.")
                         else:
-                            with game.lock_next_action:
-                                if game.next_action is None:
-                                    game.next_action = {
+                            navio_x, navio_y = game.player.position[0], game.player.position[1]
+                            
+                            dx = gx - navio_x
+                            dy = gy - navio_y
+                            
+                            print(f"[Game loop] Clique Esquerdo em ({gx}, {gy}). Delta: ({dx}, {dy})")
+
+                            direcao = None
+                            
+                            if abs(dx) + abs(dy) != 1:
+                                print("[Game loop] Movimento Inválido! Clique apenas numa casa adjacente (Cima/Baixo/Esq/Dir).")
+                            else:
+                                if dx == 1:
+                                    direcao = "+ X"
+                                elif dx == -1:
+                                    direcao = "- X"
+                                elif dy == 1:
+                                    direcao = "+ Y"
+                                elif dy == -1:
+                                    direcao = "- Y"
+                                
+                                if direcao:
+                                    nova_acao = {
                                         "protocol": "UDP",
-                                        "message": f"shot:{gx},{gy}",
+                                        "message": f"move {direcao}",
                                         "target_ip": None
                                     }
-                                else:
-                                   print("[Game loop] Aguarde o timer...")
-                    elif event.button == 1:
-                        navio_x, navio_y = game.player.position[0], game.player.position[1]
-                        
-                        dx = gx - navio_x
-                        dy = gy - navio_y
-                        
-                        print(f"[Game loop] Clique Esquerdo em ({gx}, {gy}). Delta: ({dx}, {dy})")
 
-                        direcao = None
-                        
-                        if abs(dx) + abs(dy) != 1:
-                            print("[Game loop] Movimento Inválido! Clique apenas numa casa adjacente (Cima/Baixo/Esq/Dir).")
-                        else:
-                            if dx == 1:
-                                direcao = "+ X"
-                            elif dx == -1:
-                                direcao = "- X"
-                            elif dy == 1:
-                                direcao = "+ Y"
-                            elif dy == -1:
-                                direcao = "- Y"
-                            
-                            if direcao:
-                                nova_acao = {
-                                    "protocol": "UDP",
-                                    "message": f"move {direcao}",
-                                    "target_ip": None
-                                }
-                        if nova_acao:
-                            with game.lock_next_action:
-                                if game.next_action is None:
-                                    game.next_action = nova_acao
-                                    print(f"[Game loop] >> Ação agendada: {nova_acao['message']}")
-                                else:
-                                    game.next_action = nova_acao 
-                                    print(f"[Game loop] >> Ação ATUALIZADA para: {nova_acao['message']}")
+                    if nova_acao:
+                        with game.lock_next_action:
+                            print("got to assigning nova acao")
+                            if game.next_action is None:
+                                game.next_action = nova_acao
+                                game.addLog(f"Ação agendada: {nova_acao['message']}")
+                                print(f"[Game loop] >> Ação agendada: {nova_acao['message']}")
+                            else:
+                                game.next_action = nova_acao 
+                                game.addLog(f"Ação ATUALIZADA para: {nova_acao['message']}")
+                                print(f"[Game loop] >> Ação ATUALIZADA para: {nova_acao['message']}")
 
         screen.fill(gameMap.bg_color)
         
